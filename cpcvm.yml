@@ -1,0 +1,160 @@
+---
+- name: Create a new Linux Container (LXC) on Proxmox
+  hosts: localhost # This playbook runs locally and connects to the Proxmox API
+  gather_facts: no
+
+  vars:
+    # --- Proxmox Connection Details ---
+    # IMPORTANT: Replace these with your Proxmox VE host's details
+    proxmox_host: "192.168.0.0" # e.g., pve.example.com or 192.168.1.10
+    proxmox_user: "root@pam"       # e.g., root@pam or ansible_user@pve
+    proxmox_password: "thepassword"   # Use Ansible Vault for sensitive data!
+    proxmox_node: "pve"                         # The Proxmox node name where the container will be created (e.g., pve, proxmox1)
+
+    # --- Container Configuration ---
+    container_vmid: 8888                         # Unique ID for the new container (must be unused)
+    container_hostname: "twingate"        # Hostname for the new container
+    container_template: "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst" # Proxmox template to use
+    #container_template: "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.gz" # Proxmox template to use
+                                                # Example: local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.gz
+                                                # You can find available templates under your storage in Proxmox UI (e.g., local -> CT Templates)
+    container_memory_mb: 512                    # RAM in MB
+    container_swap_mb: 512                      # Swap space in MB
+    container_disk_gb: 1                        # Root disk size in GB
+    container_storage: "local-lvm"              # Storage where the container disk will reside (e.g., local-lvm, cephfs)
+    container_cores: 2                          # Number of CPU cores
+    container_network_ip: "192.168.0.101/24"    # IP address/CIDR for the container (e.g., 192.168.1.101/24)
+    container_network_gateway: "192.168.0.1"    # Gateway for the container's network
+    container_network_bridge: "vmbr0"           # Network bridge on the Proxmox host (e.g., vmbr0)
+    container_dns_servers: "192.168.0.1"    # DNS servers for the container
+    container_password: "thepassword" # Root password for the container (use Vault!)
+    container_start_on_boot: yes                # Start container automatically on Proxmox boot
+
+  tasks:
+
+    - name: Install proxmoxer Python library
+      ansible.builtin.pip:
+        name: proxmoxer
+        state: present
+
+    - name: "Create container {{ container_hostname }} (VMID: {{ container_vmid }}) is present and configured"
+      community.general.proxmox: # Corrected module name
+        api_host: "{{ proxmox_host }}"
+        api_user: "{{ proxmox_user }}"
+        api_password: "{{ proxmox_password }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ container_vmid }}"
+        hostname: "{{ container_hostname }}"
+        ostemplate: "{{ container_template }}" # Use 'ostemplate' for LXC containers
+        memory: "{{ container_memory_mb }}"
+        swap: "{{ container_swap_mb }}"
+        disk: "{{ container_disk_gb }}"
+        storage: "{{ container_storage }}"
+        cores: "{{ container_cores }}"
+        netif: # Use 'netif' for network configuration
+          net0: "name=eth0,ip={{ container_network_ip }},gw={{ container_network_gateway }},bridge={{ container_network_bridge }}"
+        nameserver: "{{ container_dns_servers }}" # Use 'nameserver' for DNS
+        password: "{{ container_password }}"
+        proxmox_default_behavior: no_defaults # Add this line
+        #state: started # Ensure the container is created and started
+        onboot: "{{ container_start_on_boot }}" # Use 'onboot' for autostart
+        validate_certs: no # Set to 'yes' in production with valid certificates; 'no' for self-signed/test
+        pubkey: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+        unprivileged: true
+        features:
+          - nesting=1
+      delegate_to: localhost # The task runs on the Ansible control node, connecting to Proxmox API
+      register: create_container_result
+
+    - name: Start container
+      community.general.proxmox:
+        proxmox_default_behavior: no_defaults # Add this line
+        vmid: "{{ container_vmid }}"
+        api_host: "{{ proxmox_host }}"
+        api_user: "{{ proxmox_user }}"
+        api_password: "{{ proxmox_password }}"
+        state: started
+
+    - name: Display result of container creation
+      ansible.builtin.debug:
+        var: create_container_result
+
+    - name: Wait for SSH to become available on the new container (optional, if you plan to manage it via SSH)
+      ansible.builtin.wait_for:
+        host: "{{ container_network_ip | split('/') | first }}" # Extract IP from CIDR
+        port: 22
+        timeout: 300 # Wait up to 5 minutes
+        state: started
+      delegate_to: localhost
+      when: create_container_result.changed # Only wait if the container was actually created/started
+
+    - name: Add the newly created VM to in-memory inventory
+      ansible.builtin.add_host:
+        name: "{{ container_hostname }}"
+        groups: new_vms_group
+        ansible_host: "{{ container_network_ip | split('/') | first }}"
+        ansible_user: root 
+        #ansible_ssh_private_key_file: "{{ new_vm_ssh_key }}"
+      #when: create_container_result.changed # Only add if VM was actually created
+
+- name: Install packages
+  hosts: new_vms_group # Replace with your target host(s) or group(s)
+  become: true             # This is required as package installation needs root/sudo privileges
+  gather_facts: yes        # Gather facts to allow the 'package' module to determine the OS and package manager
+  vars:
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null' # <--- Add this here too, if needed for the whole play
+  tasks:
+
+    - name: Execute apt-get update forcing IPv4
+      ansible.builtin.shell: |
+        apt-get -o Acquire::ForceIPv4=true update
+      # The '|' (pipe) after 'shell:' allows for multi-line commands,
+      # though for this single command it's not strictly necessary,
+      # it's good practice for shell modules.
+      
+      # Register the output to inspect it later if needed
+      register: apt_update_result
+      
+      # This task will report 'changed' if the update process actually
+      # updates the package lists.
+      changed_when: apt_update_result.rc == 0 and 'Hit' not in apt_update_result.stdout
+
+    - name: Display apt-get update output
+      ansible.builtin.debug:
+        var: apt_update_result.stdout
+
+    - name: Update all Debian/Ubuntu packages to their latest version
+      ansible.builtin.apt:
+        name: "*"
+        state: latest
+
+    - name: Ensure curl and sudo are installed
+      ansible.builtin.package:
+        name:
+          - curl
+          - sudo
+        state: present
+
+    - name: Display message about set env var
+      ansible.builtin.debug:
+        msg: |
+          export TWINGATE='curl "https://binaries.twingate.com/connector/setup.sh" | sudo TWINGATE_ACCESS_TOKEN="" TWINGATE_REFRESH_TOKEN="" TWINGATE_NETWORK="twingatenetworkname" TWINGATE_LABEL_DEPLOYED_BY="linux" bash'
+
+    - name: Execute twingate installer 
+      ansible.builtin.shell: "{{ lookup('env', 'TWINGATE') }}"
+
+      # The '|' (pipe) after 'shell:' allows for multi-line commands,
+      # though for this single command it's not strictly necessary,
+      # it's good practice for shell modules.
+
+      # Register the output to inspect it later if needed
+      register: update_result
+
+      # This task will report 'changed' if the update process actually
+      # updates the package lists.
+      changed_when: update_result.rc == 0 and 'Hit' not in update_result.stdout
+
+    - name: Display twingate output
+      ansible.builtin.debug:
+        var: update_result.stdout
+
