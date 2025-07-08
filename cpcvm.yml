@@ -149,6 +149,7 @@
 
       # Register the output to inspect it later if needed
       register: update_result
+      failed_when: "'No changes have been made.' not in update_result.stdout"
 
       # This task will report 'changed' if the update process actually
       # updates the package lists.
