@@ -14,7 +14,8 @@
     # --- Container Configuration ---
     container_vmid: 8888                         # Unique ID for the new container (must be unused)
     container_hostname: "twingate"        # Hostname for the new container
-    container_template: "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst" # Proxmox template to use
+    container_template: "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst" # Proxmox template to use
+    #container_template: "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst" # Proxmox template to use
     #container_template: "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.gz" # Proxmox template to use
                                                 # Example: local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.gz
                                                 # You can find available templates under your storage in Proxmox UI (e.g., local -> CT Templates)
