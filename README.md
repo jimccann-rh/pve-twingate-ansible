@@ -22,7 +22,7 @@ Twingate is a zero-trust network access solution that provides secure remote acc
 - SSH access from your control machine to the Proxmox host
 - A Proxmox VE environment with:
   - Available VM ID for the new container
-  - Container template (Debian 12 by default)
+  - Container template (Debian 13 by default)
   - Sufficient resources (CPU, RAM, storage)
 
 ### Twingate Requirements
