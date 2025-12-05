@@ -48,7 +48,7 @@ Edit the following variables in `cpcvm.yml` under the `vars` section:
 |----------|-------------|---------|
 | `container_vmid` | Unique VM ID for the container | `8888` |
 | `container_hostname` | Hostname for the container | `"twingate"` |
-| `container_template` | LXC template to use | `"local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"` |
+| `container_template` | LXC template to use | `"local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst"` |
 | `container_memory_mb` | RAM allocation in MB | `512` |
 | `container_swap_mb` | Swap space in MB | `512` |
 | `container_disk_gb` | Root disk size in GB | `1` |
